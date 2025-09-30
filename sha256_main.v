@@ -45,7 +45,6 @@ function [BIT_LENGTH_1-1:0] majority;
     input [BIT_LENGTH_1-1:0] value1, value2, value3;
     majority = (value1 & value2) ^ (value1 & value3) ^ (value2 & value3);
 endfunction
-
 //state machine declarations
 localparam IDLE = 1, BUSY = 2, DONE = 3;
 reg [1:0] state, next_state;
@@ -56,7 +55,7 @@ reg [BIT_LENGTH_1-1:0] a,b,c,d,e,f,g,h;
 
 
 //counters and control signals declaration
-reg [5:0] index;
+reg [6:0] index;
 reg count_ctrl;
 reg count_reset;
 reg hash_start;
@@ -116,7 +115,7 @@ always @ * begin
         end
 
         BUSY:begin
-            if(index == 63) begin
+            if(index == 64) begin
                 next_state = DONE;
                 count_ctrl = 0;
                 hash_start = 0;
@@ -179,7 +178,7 @@ always @(posedge clk) begin
         //sch_init <= 0;
     end
     else begin
-            index <= (index + count_ctrl) & {6{~count_reset}};
+            index <= (index + count_ctrl) & {7{~count_reset}};
     end
 end
 
