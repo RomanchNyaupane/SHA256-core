@@ -4,7 +4,8 @@ module secure_hash_algorithm(
     input wire clk, reset,
     input wire [511:0] data_in,
     input wire init,
-    output reg [255:0] hash_out
+    output reg [255:0] hash_out,
+    output reg hash_ready
 );
 localparam BIT_LENGTH_1 = 32;
 localparam BIT_LENGTH_2 = 64;
@@ -63,7 +64,7 @@ reg output_enable;
 
 //module related declarations
 wire [31:0] schedule_out;
-wire sch_init;
+reg sch_init;
 scheduling_unit sch_u(
     .data_in(data_in),
     .index(index),
@@ -78,7 +79,7 @@ k_values k_v(
     .k_out(k_val)
 );
 
-assign sch_init = init? 1: 0;
+//assign sch_init = (init & ~((|index[6:1]) | index[0]))? 1: 0;
 //state transition
 always @(posedge clk) begin
     if(reset) begin
@@ -86,24 +87,26 @@ always @(posedge clk) begin
         state <= IDLE;
         count_ctrl <= 0;
         hash_start <= 0;
+        hash_ready <= 0;
         //sch_init <= 0;
     end else begin
         state <= next_state;
         hash_out <= output_enable ? {a+H0,b+H1,c+H2,d+H3,e+H4,f+H5,g+H6,h+H7}: 256'b0;
+        hash_ready <= output_enable ? 1'b1 : 1'b0;
     end
 end
 
 //state logic
 always @ * begin
     count_reset = 0;
-    //sch_init = 0;
+    sch_init = 0;
     output_enable = 0;
 
     case(state)
         IDLE:begin
             if(init) begin
                 next_state = BUSY;
-                //sch_init = 1;
+                sch_init = 1;
                 hash_start = 1;
                 //count_ctrl = 1;
             end else begin
@@ -139,10 +142,11 @@ always @(posedge clk) begin
         state <= IDLE;
         count_ctrl <= 0;
         hash_start <= 0;
+        hash_ready <= 0;
         //sch_init <= 0;
     end else begin
         // loading initial hash values to the registers
-        if (state == IDLE && init) begin
+        if (state == IDLE & sch_init) begin
              a <= H0;
              b <= H1;
              c <= H2;
@@ -152,7 +156,7 @@ always @(posedge clk) begin
              g <= H6;
              h <= H7;
         end else begin
-            if(hash_start & ~init) begin
+            if(hash_start & ~sch_init) begin
                 //t1 = h + Σ1(e) + Ch(e,f,g) + Kt + Wt -> done directly
                 //t2 = Σ0(a) + Maj(a,b,c) -> done directly
                 h <= g;
@@ -175,6 +179,7 @@ always @(posedge clk) begin
         state <= IDLE;
         count_ctrl <= 0;
         hash_start <= 0;
+        hash_ready <= 0;
         //sch_init <= 0;
     end
     else begin

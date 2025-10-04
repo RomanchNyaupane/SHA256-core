@@ -1,49 +1,39 @@
 `timescale 1ns / 1ps
 
 module tb_myip();
-
-    // Parameters
-    parameter integer C_S00_AXI_DATA_WIDTH = 32;
-    parameter integer C_S00_AXI_ADDR_WIDTH = 9;
-    parameter CLK_PERIOD = 10; // 100MHz clock
+    localparam T = 10;
     
-    // Clock and Reset
     reg s00_axi_aclk;
     reg s00_axi_aresetn;
     
-    // AXI4-Lite Write Address Channel
-    reg [C_S00_AXI_ADDR_WIDTH-1:0] s00_axi_awaddr;
+
+    wire s00_axi_awready;
+    reg [8:0] s00_axi_awaddr;
     reg [2:0] s00_axi_awprot;
     reg s00_axi_awvalid;
-    wire s00_axi_awready;
     
-    // AXI4-Lite Write Data Channel
-    reg [C_S00_AXI_DATA_WIDTH-1:0] s00_axi_wdata;
-    reg [(C_S00_AXI_DATA_WIDTH/8)-1:0] s00_axi_wstrb;
-    reg s00_axi_wvalid;
     wire s00_axi_wready;
+    reg [31:0] s00_axi_wdata;
+    reg [3:0] s00_axi_wstrb;
+    reg s00_axi_wvalid;
     
-    // AXI4-Lite Write Response Channel
+    reg s00_axi_bready;
     wire [1:0] s00_axi_bresp;
     wire s00_axi_bvalid;
-    reg s00_axi_bready;
     
-    // AXI4-Lite Read Address Channel
-    reg [C_S00_AXI_ADDR_WIDTH-1:0] s00_axi_araddr;
+    wire s00_axi_arready;
+    reg [8:0] s00_axi_araddr;
     reg [2:0] s00_axi_arprot;
     reg s00_axi_arvalid;
-    wire s00_axi_arready;
     
-    // AXI4-Lite Read Data Channel
-    wire [C_S00_AXI_DATA_WIDTH-1:0] s00_axi_rdata;
+    reg s00_axi_rready;
+    wire [31:0] s00_axi_rdata;
     wire [1:0] s00_axi_rresp;
     wire s00_axi_rvalid;
-    reg s00_axi_rready;
     
-    // Instantiate DUT
     myip #(
-        .C_S00_AXI_DATA_WIDTH(C_S00_AXI_DATA_WIDTH),
-        .C_S00_AXI_ADDR_WIDTH(C_S00_AXI_ADDR_WIDTH)
+        .C_S00_AXI_DATA_WIDTH(32),
+        .C_S00_AXI_ADDR_WIDTH(9)
     ) dut (
         .s00_axi_aclk(s00_axi_aclk),
         .s00_axi_aresetn(s00_axi_aresetn),
@@ -68,184 +58,206 @@ module tb_myip();
         .s00_axi_rready(s00_axi_rready)
     );
     
-    // Clock generation
-    initial begin
+    always begin
         s00_axi_aclk = 0;
-        forever #(CLK_PERIOD/2) s00_axi_aclk = ~s00_axi_aclk;
+        #(T/2);
+        s00_axi_aclk = 1;
+        #(T/2);
     end
     
-    // AXI Write Task
-    task axi_write;
-        input [C_S00_AXI_ADDR_WIDTH-1:0] addr;
-        input [C_S00_AXI_DATA_WIDTH-1:0] data;
-        begin
-            @(posedge s00_axi_aclk);
-            s00_axi_awaddr = addr;
-            s00_axi_awvalid = 1;
-            s00_axi_awprot = 3'b000;
-            
-            s00_axi_wdata = data;
-            s00_axi_wvalid = 1;
-            s00_axi_wstrb = 4'hF;
-            s00_axi_bready = 1;
-            
-            // Wait for address ready
-            wait(s00_axi_awready);
-            @(posedge s00_axi_aclk);
-            s00_axi_awvalid = 0;
-            
-            // Wait for data ready
-            wait(s00_axi_wready);
-            @(posedge s00_axi_aclk);
-            s00_axi_wvalid = 0;
-            
-            // Wait for write response
-            wait(s00_axi_bvalid);
-            @(posedge s00_axi_aclk);
-            s00_axi_bready = 0;
-            
-            $display("Time=%0t: AXI Write - Addr=0x%h, Data=0x%h", $time, addr, data);
-        end
-    endtask
-    
-    // AXI Read Task
-    task axi_read;
-        input [C_S00_AXI_ADDR_WIDTH-1:0] addr;
-        output [C_S00_AXI_DATA_WIDTH-1:0] data;
-        begin
-            @(posedge s00_axi_aclk);
-            s00_axi_araddr = addr;
-            s00_axi_arvalid = 1;
-            s00_axi_arprot = 3'b000;
-            s00_axi_rready = 1;
-            
-            // Wait for address ready
-            wait(s00_axi_arready);
-            @(posedge s00_axi_aclk);
-            s00_axi_arvalid = 0;
-            
-            // Wait for read data valid
-            wait(s00_axi_rvalid);
-            data = s00_axi_rdata;
-            @(posedge s00_axi_aclk);
-            s00_axi_rready = 0;
-            
-            $display("Time=%0t: AXI Read - Addr=0x%h, Data=0x%h", $time, addr, data);
-        end
-    endtask
-    
-    // Test SHA-256 with known input
-    task test_sha256;
-        input [511:0] message;
-        input [255:0] expected_hash;
-        reg [31:0] read_data;
-        reg [255:0] result_hash;
-        integer i;
-        begin
-            $display("\n=== Starting SHA-256 Test ===");
-            $display("Input Message: 0x%h", message);
-            
-            // Write 16 x 32-bit words (512 bits total) to registers 0-15
-            for (i = 0; i < 16; i = i + 1) begin
-                axi_write(i * 4, message[i*32 +: 32]);
-            end
-            
-            // Trigger hash computation by writing to control register (reg 18, addr 72)
-            $display("Triggering hash computation...");
-            axi_write(72, 32'h00000001); // Set init bit
-            
-            // Poll status register (reg 25, addr 100) for completion
-            read_data = 0;
-            while (read_data[0] == 0) begin
-                #(CLK_PERIOD * 10); // Wait some cycles
-                axi_read(100, read_data);
-                if (read_data[0] == 1) begin
-                    $display("Hash computation completed!");
-                end
-            end
-            
-            // Read hash result from registers 16-23 (addresses 64-92)
-            for (i = 0; i < 8; i = i + 1) begin
-                axi_read(64 + (i * 4), read_data);
-                result_hash[i*32 +: 32] = read_data;
-            end
-            
-            $display("Result Hash: 0x%h", result_hash);
-            $display("Expected Hash: 0x%h", expected_hash);
-            
-            // Compare result
-            if (result_hash == expected_hash) begin
-                $display("*** TEST PASSED ***");
-            end else begin
-                $display("*** TEST FAILED ***");
-            end
-            
-            // Clear init bit
-            axi_write(72, 32'h00000000);
-            #(CLK_PERIOD * 10);
-        end
-    endtask
-    
-    // Main test sequence
     initial begin
-        // Initialize signals
-        s00_axi_aresetn = 0;
+        // *** Initial value ***
         s00_axi_awaddr = 0;
         s00_axi_awprot = 0;
         s00_axi_awvalid = 0;
         s00_axi_wdata = 0;
         s00_axi_wstrb = 0;
         s00_axi_wvalid = 0;
-        s00_axi_bready = 0;
+        s00_axi_bready = 1;
         s00_axi_araddr = 0;
         s00_axi_arprot = 0;
         s00_axi_arvalid = 0;
-        s00_axi_rready = 0;
+        s00_axi_rready = 1;
         
-        // Wait for some time
-        #(CLK_PERIOD * 5);
-        
-        // Release reset
+        //reset
+        s00_axi_aresetn = 0;
+        #(T*5);
         s00_axi_aresetn = 1;
-        #(CLK_PERIOD * 5);
+        #(T*5);
         
-        // Test Case 1: Empty string (all zeros - represents padded empty message)
-        // SHA-256("") = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
-        test_sha256(
-            512'h8000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000,
-            256'he3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
-        );
+        $display("Test Case 1: SHA-256(abc) ");
         
-        // Test Case 2: "abc" (pre-padded)
-        // SHA-256("abc") = ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
-        test_sha256(
-            512'h6162638000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000018,
-            256'hba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
-        );
+        // "abc" padded: 0x61626380 00000000 ... 00000018
+        axi_write(9'h00, 32'h00000018);  //reg0: length in bits (24 bit)
+        axi_write(9'h04, 32'h00000000);  //reg1
+        axi_write(9'h08, 32'h00000000);  //reg2
+        axi_write(9'h0c, 32'h00000000);  //reg3
+        axi_write(9'h10, 32'h00000000);  //reg4
+        axi_write(9'h14, 32'h00000000);  //reg5
+        axi_write(9'h18, 32'h00000000);  //reg6
+        axi_write(9'h1c, 32'h00000000);  //reg7
+        axi_write(9'h20, 32'h00000000);  //reg8
+        axi_write(9'h24, 32'h00000000);  //reg9
+        axi_write(9'h28, 32'h00000000);  //reg10
+        axi_write(9'h2c, 32'h00000000);  //reg11
+        axi_write(9'h30, 32'h00000000);  //reg12
+        axi_write(9'h34, 32'h00000000);  //reg13
+        axi_write(9'h38, 32'h00000000);  //reg14
+        axi_write(9'h3c, 32'h61626380);  //reg15: "abc" + padding start
         
-        // Test Case 3: Custom test pattern
-        test_sha256(
-            512'h0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,
-            256'h0 // Replace with expected hash if known
-        );
+        //start hash computation
+        axi_write(9'h60, 32'h00000001);  //reg18: init = 1
         
-        // Finish simulation
-        #(CLK_PERIOD * 100);
+        #20
+        axi_write(9'h60, 32'h00000000);  //reg18: init = 1
+        
+        //wait for computation (adjust time as needed)
+        #(T*100);
+        
+        //read status register
+        axi_read(9'h64);  //reg25: status (hash_ready)
+        #(T*2);
+        $display("Status = 0x%h", s00_axi_rdata);
+        
+        //read hash result (8 x 32-bit words = 256 bits)
+        axi_read(9'h40);  //reg16
+        #(T*2);
+        $display("Hash[31:0]  = 0x%h", s00_axi_rdata);
+        
+        axi_read(9'h44);  // reg17
+        #(T*2);
+        $display("Hash[63:32]    = 0x%h", s00_axi_rdata);
+        
+        axi_read(9'h48);  // reg18
+        #(T*2);
+        $display("Hash[95:64]    = 0x%h", s00_axi_rdata);
+        
+        axi_read(9'h4c);  // reg19
+        #(T*2);
+        $display("Hash[127:96]   = 0x%h", s00_axi_rdata);
+        
+        axi_read(9'h50);  // reg20
+        #(T*2);
+        $display("Hash[159:128]  = 0x%h", s00_axi_rdata);
+        
+        axi_read(9'h54);  // reg21
+        #(T*2);
+        $display("Hash[191:160]  = 0x%h", s00_axi_rdata);
+        
+        axi_read(9'h58);  // reg22
+        #(T*2);
+        $display("Hash[223:192]  = 0x%h", s00_axi_rdata);
+        
+        axi_read(9'h5c);  // reg23
+        #(T*2);
+        $display("Hash[255:224]  = 0x%h", s00_axi_rdata);
+        
+        $display("Expected: ba7816bf 8f01cfea 414140de 5dae2223 b00361a3 96177a9c b410ff61 f20015ad");
+        
+        #(T*10);
+        
+        // Test Case 2: Empty string (padded)
+        $display("\n=== Test Case 2: SHA-256('') - Empty String ===");
+        
+        //write 512-bit input for empty string
+        axi_write(9'h00, 32'h80000000);  //reg0: padding start
+        axi_write(9'h04, 32'h00000000);  //reg1
+        axi_write(9'h08, 32'h00000000);  //reg2
+        axi_write(9'h0c, 32'h00000000);  //reg3
+        axi_write(9'h10, 32'h00000000);  //reg4
+        axi_write(9'h14, 32'h00000000);  //reg5
+        axi_write(9'h18, 32'h00000000);  //reg6
+        axi_write(9'h1c, 32'h00000000);  //reg7
+        axi_write(9'h20, 32'h00000000);  //reg8
+        axi_write(9'h24, 32'h00000000);  //reg9
+        axi_write(9'h28, 32'h00000000);  //reg10
+        axi_write(9'h2c, 32'h00000000);  //reg11
+        axi_write(9'h30, 32'h00000000);  //reg12
+        axi_write(9'h34, 32'h00000000);  //reg13
+        axi_write(9'h38, 32'h00000000);  //reg14
+        axi_write(9'h3c, 32'h00000000);  //reg15: length = 0 bits
+        
+        //start hash computation
+        axi_write(9'h48, 32'h00000001);  // reg18: init = 1
+        
+        //wait for computation
+        #(T*100);
+        
+        //read status register
+        axi_read(9'h64);  // reg25: status
+        #(T*2);
+        $display("Status = 0x%h", s00_axi_rdata);
+        
+        //read hash result
+        axi_read(9'h40);  // reg16
+        #(T*2);
+        $display("Hash[31:0]     = 0x%h", s00_axi_rdata);
+        
+        axi_read(9'h44);  // reg17
+        #(T*2);
+        $display("Hash[63:32]    = 0x%h", s00_axi_rdata);
+        
+        axi_read(9'h48);  // reg18
+        #(T*2);
+        $display("Hash[95:64]    = 0x%h", s00_axi_rdata);
+        
+        axi_read(9'h4c);  // reg19
+        #(T*2);
+        $display("Hash[127:96]   = 0x%h", s00_axi_rdata);
+        
+        axi_read(9'h50);  // reg20
+        #(T*2);
+        $display("Hash[159:128]  = 0x%h", s00_axi_rdata);
+        
+        axi_read(9'h54);  // reg21
+        #(T*2);
+        $display("Hash[191:160]  = 0x%h", s00_axi_rdata);
+        
+        axi_read(9'h58);  // reg22
+        #(T*2);
+        $display("Hash[223:192]  = 0x%h", s00_axi_rdata);
+        
+        axi_read(9'h5c);  // reg23
+        #(T*2);
+        $display("Hash[255:224]  = 0x%h", s00_axi_rdata);
+        
+        $display("Expected: e3b0c442 98fc1c14 9afbf4c8 996fb924 27ae41e4 649b934c a495991b 7852b855");
+        
+        #(T*10);
         $display("\n=== Simulation Complete ===");
         $finish;
     end
     
-    // Timeout watchdog
-    initial begin
-        #(CLK_PERIOD * 100000);
-        $display("ERROR: Simulation timeout!");
-        $finish;
-    end
+    //AXI Write
+    task axi_write;
+        input [8:0] awaddr;
+        input [31:0] wdata;
+        begin
+            //address
+            s00_axi_awaddr = awaddr;
+            s00_axi_awvalid = 1;
+            #T;
+            s00_axi_awvalid = 0;
+            //data
+            s00_axi_wdata = wdata;
+            s00_axi_wstrb = 4'hf;
+            s00_axi_wvalid = 1;
+            #T;
+            s00_axi_wvalid = 0;
+            #T;
+        end
+    endtask
     
-    // Optional: Dump waveforms
-    initial begin
-        $dumpfile("tb_myip.vcd");
-        $dumpvars(0, tb_myip);
-    end
+    //AXI Read 
+    task axi_read;
+        input [8:0] araddr;
+        begin
+            s00_axi_araddr = araddr;
+            s00_axi_arvalid = 1;
+            #T;
+            s00_axi_arvalid = 0;
+            #T;
+        end
+    endtask
 
 endmodule
